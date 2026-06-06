@@ -1,0 +1,41 @@
+Copyright (c) 2026 Catalin-Alexandru Bogoslov (alexbogoslov). All rights reserved.
+
+SINUS SOFTWARE LICENCE
+
+1. DEFINITIONS
+   "Software" refers to the Sinus macOS application and all associated source code,
+   assets, and documentation in this repository.
+   "Personal Use" means use by an individual for non-commercial purposes on their
+   own devices.
+   "Commercial Use" means any use intended for or directed toward commercial advantage
+   or monetary compensation.
+
+2. PERMISSIONS — PERSONAL USE
+   Permission is granted, free of charge, to any individual to view, download, build,
+   and use the Software for Personal Use only, subject to the following conditions:
+   - The above copyright notice must be retained in all copies.
+   - The Software may not be redistributed, sold, or sublicensed.
+   - Modified versions may be built and used personally but may not be distributed.
+
+3. RESTRICTIONS
+   The following are expressly prohibited without prior written permission from the
+   copyright holder:
+   - Commercial Use of the Software or any derivative work
+   - Distribution of the Software or modified versions to third parties
+   - Selling, licensing, or sublicensing the Software or any part of it
+   - Using the Software as the basis for a competing commercial product
+
+4. THIRD-PARTY COMPONENTS
+   This Software incorporates the following MIT-licensed components. Their respective
+   licences and copyright notices are preserved:
+   - NotchDrop by Lakr Aream (https://github.com/Lakr233/NotchDrop)
+   - NotchNotification by Lakr Aream (https://github.com/Lakr233/NotchNotification)
+
+5. COMMERCIAL LICENSING
+   For Commercial Use, distribution rights, or partnership enquiries, contact:
+   launchwithalex@gmail.com
+
+6. NO WARRANTY
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM,
+   DAMAGES, OR OTHER LIABILITY ARISING FROM USE OF THE SOFTWARE.
