@@ -9,6 +9,7 @@ final class NotchViewModel: ObservableObject {
     @Published private(set) var state: State = .collapsed
     @Published private(set) var notchFrame: CGRect = .zero
 
+    // State is set directly — the view owns all animation via .animation() modifiers.
     func expand() {
         guard state == .collapsed else { return }
         state = .expanded

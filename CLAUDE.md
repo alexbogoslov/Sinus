@@ -248,13 +248,24 @@ At the start of every Claude Code session:
 4. After any significant change, ask Alex to build and run in Xcode and report back
 5. Never refactor working code without explicit discussion first
 6. Keep commits small and descriptive
-7. Before each task, recommend which model and effort level to use:
+7. Before starting any task, state the recommended model and effort level and
+   WAIT for Alex's confirmation before proceeding. Do not begin work until
+   he has confirmed (or chosen a different model/effort).
    - Sonnet (default): most tasks — code changes, bug fixes, feature implementation
    - Opus: complex architecture decisions, debugging subtle system-level issues,
      designing animation systems or multi-component interactions
    - Haiku: quick lookups, minor edits, single-line fixes, formatting
    - Effort: low for isolated changes; medium for multi-file work; high/ultra for
      architectural reviews or when correctness is critical before shipping
+   Format: "Model: <name> — <one-line rationale>. Effort: <level>. Proceed?"
+
+### Context Window Management
+Monitor context window usage throughout each session. This conversation has a fixed token budget:
+- At 70% usage: warn Alex with a reminder to consider starting a fresh session soon
+- At 80% usage: deliver a strong recommendation to start a fresh session immediately before continuing
+- Include the current usage percentage in the message
+
+When transitioning to a new session, commit all work first and reference the previous commit hash so the new session can pick up where this one left off.
 
 ---
 

@@ -1,3 +1,9 @@
+// NotchWindowController.swift
+// Owns the NSPanel that lives above the menu bar and drives all notch state.
+// Geometry is read once at launch (and on display changes) via NotchAnchorWindow,
+// which reads safeAreaInsets and auxiliaryTopLeftArea/auxiliaryTopRightArea directly
+// from NSScreen — no guesswork, no hard-coded measurements.
+
 import AppKit
 import SwiftUI
 import Combine
@@ -10,12 +16,10 @@ final class NotchWindowController: NSObject {
     private var stateCancellable: AnyCancellable?
     private var mouseMonitor: Any?
 
-    private var collapsedPanelFrame: CGRect = .zero
-    private var expandedPanelFrame: CGRect = .zero
-
-    private let expandedWidth: CGFloat = 380
-    private let expandedHeight: CGFloat = 120
-    private let collapsedPadding: CGFloat = 20
+    // Hot-zone geometry (screen coords, updated whenever display config changes).
+    private var notchHotZone:    CGRect = .zero   // triggers expand on hover
+    private var expandedFrame:   CGRect = .zero   // keeps panel expanded while inside
+    private var geometry: NotchGeometry?           // hardware measurements
 
     init(viewModel: NotchViewModel) {
         self.viewModel = viewModel
@@ -27,75 +31,74 @@ final class NotchWindowController: NSObject {
     // MARK: - Panel setup
 
     private func buildPanel() {
-        guard let screen = primaryNotchScreen() else { return }
+        guard let screen = primaryNotchScreen(),
+              let geo    = NotchAnchorWindow.notchGeometry(for: screen) else { return }
 
-        let notchF = notchFrame(on: screen)
-        Task { @MainActor in viewModel.updateNotchFrame(notchF) }
+        geometry = geo
+        Task { @MainActor in
+            // Tell the view the collapsed (hardware) dimensions.
+            viewModel.updateNotchFrame(
+                CGRect(x: geo.x,
+                       y: screen.frame.maxY - geo.height,
+                       width:  geo.width,
+                       height: geo.height)
+            )
+        }
 
-        collapsedPanelFrame = makeCollapsedFrame(notchFrame: notchF)
-        expandedPanelFrame  = makeExpandedFrame(notchFrame: notchF)
+        // Hot-zone = the physical notch rectangle (triggers expand on hover).
+        notchHotZone = CGRect(
+            x:      geo.x,
+            y:      screen.frame.maxY - geo.height,
+            width:  geo.width,
+            height: geo.height
+        )
+
+        // Panel frame = full expanded size (body + shoulders), centred on notch.
+        let panelW = geo.expandedFrameWidth
+        let panelH = geo.expandedHeight
+        let panelX = (geo.x + geo.width / 2 - panelW / 2).rounded()
+        let panelY = (screen.frame.maxY - panelH).rounded()
+        expandedFrame = CGRect(x: panelX, y: panelY, width: panelW, height: panelH)
 
         let panel = NSPanel(
-            contentRect: collapsedPanelFrame,
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
+            contentRect: expandedFrame,
+            styleMask:   [.borderless, .nonactivatingPanel],
+            backing:     .buffered,
+            defer:       false
         )
-        panel.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.maximumWindow)) - 1)
+        panel.level            = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.maximumWindow)) - 1)
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = false
-        // Panel receives clicks for future interactive content but hover is
-        // handled via a global event monitor — independent of window bounds.
-        panel.ignoresMouseEvents = false
+        panel.isOpaque         = false
+        panel.backgroundColor  = .clear
+        panel.hasShadow        = false
+        panel.ignoresMouseEvents = true   // starts collapsed; toggled in subscribeToState()
 
-        let rootView = NotchView(viewModel: viewModel)
-        let hostingView = NSHostingView(rootView: rootView)
-        // Panel owns the frame — prevent SwiftUI from trying to resize the hosting view.
-        hostingView.sizingOptions = []
-        hostingView.frame = panel.contentView?.bounds ?? collapsedPanelFrame
+        let hostingView = NSHostingView(rootView: NotchView(viewModel: viewModel))
+        hostingView.sizingOptions    = []
+        hostingView.frame            = panel.contentView?.bounds ?? .zero
         hostingView.autoresizingMask = [.width, .height]
         panel.contentView = hostingView
 
         self.panel = panel
         subscribeToState()
         startMouseMonitoring()
-
         panel.orderFrontRegardless()
     }
 
-    // MARK: - State-driven panel animation
+    // MARK: - State subscription
 
     private func subscribeToState() {
         stateCancellable = viewModel.$state
             .receive(on: RunLoop.main)
-            .dropFirst()
             .sink { [weak self] state in
-                self?.animatePanel(to: state)
+                // Pass-through clicks to the menu bar when the panel is collapsed.
+                self?.panel?.ignoresMouseEvents = (state == .collapsed)
             }
     }
 
-    private func animatePanel(to state: NotchViewModel.State) {
-        guard let panel = panel else { return }
-        let targetFrame = state == .expanded ? expandedPanelFrame : collapsedPanelFrame
-        let duration: TimeInterval = state == .expanded ? 0.42 : 0.35
-        let timing = state == .expanded
-            ? CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.35, 1.0)
-            : CAMediaTimingFunction(controlPoints: 0.25, 0.8, 0.35, 1.0)
-
-        NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = duration
-            ctx.timingFunction = timing
-            ctx.allowsImplicitAnimation = true
-            panel.animator().setFrame(targetFrame, display: true)
-        }
-    }
-
-    // MARK: - Mouse monitoring (global, geometry-based)
-    //
-    // Tracking areas on a resizing panel fire spurious enter/exit events
-    // mid-animation. A global monitor checking fixed rects is immune to this.
+    // MARK: - Mouse monitoring
+    // Global monitor instead of NSTrackingArea — tracking areas fire spuriously
+    // while the panel itself is resizing/animating.
 
     private func startMouseMonitoring() {
         mouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: .mouseMoved) { [weak self] _ in
@@ -110,64 +113,30 @@ final class NotchWindowController: NSObject {
 
     private func evaluateMousePosition() {
         let loc = NSEvent.mouseLocation
-        // Expand when cursor enters the collapsed notch zone.
-        // Stay expanded while cursor remains anywhere in the expanded panel area.
-        let shouldExpand = collapsedPanelFrame.contains(loc)
-        let shouldStayExpanded = expandedPanelFrame.contains(loc)
-
         Task { @MainActor [weak self] in
             guard let self else { return }
-            if shouldExpand || shouldStayExpanded {
+            let overNotch   = notchHotZone.contains(loc)
+            let overExpanded = viewModel.state == .expanded && expandedFrame.contains(loc)
+            if overNotch || overExpanded {
                 if viewModel.state == .collapsed { viewModel.expand() }
             } else {
-                if viewModel.state == .expanded { viewModel.collapse() }
+                if viewModel.state == .expanded  { viewModel.collapse() }
             }
         }
     }
 
-    // MARK: - Geometry
+    // MARK: - Screen change observation
 
     private func primaryNotchScreen() -> NSScreen? {
         NSScreen.screens.first { $0.safeAreaInsets.top > 0 } ?? NSScreen.main
     }
 
-    private func notchFrame(on screen: NSScreen) -> CGRect {
-        let insets = screen.safeAreaInsets
-        let notchHeight: CGFloat = insets.top > 0 ? insets.top : 32
-        let notchWidth: CGFloat = 126
-        let x = screen.frame.midX - notchWidth / 2
-        let y = screen.frame.maxY - notchHeight
-        return CGRect(x: x, y: y, width: notchWidth, height: notchHeight)
-    }
-
-    private func makeCollapsedFrame(notchFrame: CGRect) -> CGRect {
-        CGRect(
-            x: notchFrame.midX - (notchFrame.width / 2 + collapsedPadding),
-            y: notchFrame.minY,
-            width: notchFrame.width + collapsedPadding * 2,
-            height: notchFrame.height
-        )
-    }
-
-    private func makeExpandedFrame(notchFrame: CGRect) -> CGRect {
-        CGRect(
-            x: notchFrame.midX - expandedWidth / 2,
-            y: notchFrame.maxY - expandedHeight,
-            width: expandedWidth,
-            height: expandedHeight
-        )
-    }
-
-    // MARK: - Screen change observation
-
     private func observeScreenChanges() {
         screenObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.rebuild()
-        }
+            object:  nil,
+            queue:   .main
+        ) { [weak self] _ in self?.rebuild() }
     }
 
     private func rebuild() {

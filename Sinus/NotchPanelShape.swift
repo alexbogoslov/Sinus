@@ -1,113 +1,103 @@
+// NotchPanelShape.swift
+// Custom Path that morphs continuously between the collapsed notch shape and
+// the expanded panel, driven by animProgress (0 = collapsed, 1 = expanded).
+//
+// Both states share one formula — the expanded path degenerates to the
+// collapsed path when animProgress = 0 (shoulderRadius scales to 0,
+// bottomCornerRadius interpolates down to bendRadius, and the shoulder arcs
+// collapse to a flat top).
+//
+// Shoulder geometry (local coords, expanded state):
+//
+//   (0,0) ──────────────────────────────── (W,0)   ← menu bar line, top edge
+//    │╲                                   ╱│
+//    │ ╲  left shoulder               right╱│
+//    │  ╲ arc bows outward      outward ╱  │
+//    │  (sr,sr)──────────────(W-sr,sr)     │
+//    │   │                          │      │
+//    │   │      panel body          │      │
+//    │   ╰──────────────────────────╯      │
+//
+// shoulderRadius is held constant throughout the animation — the shoulders
+// stay fully formed from the first frame of collapse all the way back to
+// notch size. Only bottomCornerRadius interpolates down to bendRadius as
+// progress goes to 0.
+//
+// Spring overshoot is clamped at [0, 1] so br never goes negative or over
+// its target, while the frame's own spring overshoot remains intact.
+
 import SwiftUI
 
-/// The shape of the expanded notch panel.
-/// Traces the outer boundary including the notch cutout at the top, so the
-/// visible area merges seamlessly with the physical notch hardware.
-///
-///  ┌──────⌒[notch]⌒──────┐  ← earRadius curves at notch-to-menu-bar transition
-///  │                      │
-///  │                      │
-///  └──────────────────────┘  ← bottomRadius corners
-struct NotchPanelShape: Shape {
+struct NotchPanelShape: Shape, Animatable {
 
-    /// Width of the physical notch in the panel's coordinate space.
-    var notchWidth: CGFloat
-    /// Height of the notch cutout from the top of the panel.
-    var notchHeight: CGFloat
-    /// Radius of the concave ear curves where the notch sides meet the menu bar.
-    var earRadius: CGFloat = 9
-    /// Radius of the inner corners at the notch bottom.
-    var innerRadius: CGFloat = 8
-    /// Radius of the panel's bottom corners.
-    var bottomRadius: CGFloat = 16
+    // 0 = fully collapsed, 1 = fully expanded; tweened by SwiftUI's animation engine.
+    var animProgress:       CGFloat
+    var shoulderRadius:     CGFloat   // concave ramp radius (expanded state)
+    var bendRadius:         CGFloat   // hardware notch corner (collapsed state)
+    var bottomCornerRadius: CGFloat   // panel bottom corners (expanded state)
+
+    var animatableData: CGFloat {
+        get { animProgress }
+        set { animProgress = newValue }
+    }
 
     func path(in rect: CGRect) -> Path {
-        let nl = rect.midX - notchWidth / 2   // notch left x
-        let nr = rect.midX + notchWidth / 2   // notch right x
-        let nh = notchHeight
-        let er = earRadius
-        let ir = innerRadius
-        let br = bottomRadius
+        let w = rect.width
+        let h = rect.height
+
+        // Shoulders are constant — never scaled by progress.
+        let sr = shoulderRadius
+
+        // Only the bottom corner radius interpolates; clamp against spring overshoot.
+        let t     = max(0, min(1, animProgress))
+        let rawBR = bendRadius + (bottomCornerRadius - bendRadius) * t
+        let br    = min(rawBR, (h - sr) / 2, (w - 2 * sr) / 2)
 
         var p = Path()
 
-        // ── Top-left origin ──────────────────────────────────────────────────
+        // ── Top-left (menu-bar line) ──────────────────────────────────────────
         p.move(to: CGPoint(x: 0, y: 0))
-        p.addLine(to: CGPoint(x: nl - er, y: 0))
 
-        // Left ear: concave curve from menu-bar level into notch left wall.
-        // Arc center sits AT the notch-left/menu-bar corner point.
-        // Counterclockwise (180° → 90°) bows the arc toward the notch interior.
-        p.addArc(
-            center: CGPoint(x: nl, y: 0),
-            radius: er,
-            startAngle: .degrees(180),
-            endAngle:   .degrees(90),
-            clockwise:  false
-        )
+        // ── Left shoulder (concave ramp; degenerates to a point when sr = 0) ──
+        // Centre on the left edge at (0, sr). Sweeps screen-CW from 270° to 0°.
+        p.addArc(center:     CGPoint(x: 0,  y: sr),
+                 radius:     sr,
+                 startAngle: .degrees(270),
+                 endAngle:   .degrees(0),
+                 clockwise:  false)
 
-        // Notch left wall
-        p.addLine(to: CGPoint(x: nl, y: nh - ir))
+        // ── Left side ─────────────────────────────────────────────────────────
+        p.addLine(to: CGPoint(x: sr, y: h - br))
 
-        // Notch bottom-left inner corner (convex from inside the notch)
-        p.addArc(
-            center: CGPoint(x: nl + ir, y: nh - ir),
-            radius: ir,
-            startAngle: .degrees(180),
-            endAngle:   .degrees(90),
-            clockwise:  false
-        )
+        // ── Bottom-left convex corner ──────────────────────────────────────────
+        p.addArc(center:     CGPoint(x: sr + br, y: h - br),
+                 radius:     br,
+                 startAngle: .degrees(180),
+                 endAngle:   .degrees(90),
+                 clockwise:  true)
 
-        // Notch bottom edge
-        p.addLine(to: CGPoint(x: nr - ir, y: nh))
+        // ── Bottom edge ────────────────────────────────────────────────────────
+        p.addLine(to: CGPoint(x: w - sr - br, y: h))
 
-        // Notch bottom-right inner corner
-        p.addArc(
-            center: CGPoint(x: nr - ir, y: nh - ir),
-            radius: ir,
-            startAngle: .degrees(90),
-            endAngle:   .degrees(0),
-            clockwise:  false
-        )
+        // ── Bottom-right convex corner ─────────────────────────────────────────
+        p.addArc(center:     CGPoint(x: w - sr - br, y: h - br),
+                 radius:     br,
+                 startAngle: .degrees(90),
+                 endAngle:   .degrees(0),
+                 clockwise:  true)
 
-        // Notch right wall
-        p.addLine(to: CGPoint(x: nr, y: er))
+        // ── Right side ─────────────────────────────────────────────────────────
+        p.addLine(to: CGPoint(x: w - sr, y: sr))
 
-        // Right ear: concave curve from notch right wall back to menu-bar level
-        p.addArc(
-            center: CGPoint(x: nr, y: 0),
-            radius: er,
-            startAngle: .degrees(90),
-            endAngle:   .degrees(0),
-            clockwise:  false
-        )
+        // ── Right shoulder (mirrored; degenerates to a point when sr = 0) ──────
+        // Centre on the right edge at (w, sr). Sweeps screen-CW from 180° to 270°.
+        p.addArc(center:     CGPoint(x: w,  y: sr),
+                 radius:     sr,
+                 startAngle: .degrees(180),
+                 endAngle:   .degrees(270),
+                 clockwise:  false)
 
-        // ── Top-right → down right side ───────────────────────────────────
-        p.addLine(to: CGPoint(x: rect.width, y: 0))
-        p.addLine(to: CGPoint(x: rect.width, y: rect.height - br))
-
-        // Bottom-right corner
-        p.addArc(
-            center: CGPoint(x: rect.width - br, y: rect.height - br),
-            radius: br,
-            startAngle: .degrees(0),
-            endAngle:   .degrees(90),
-            clockwise:  false
-        )
-
-        // Bottom edge
-        p.addLine(to: CGPoint(x: br, y: rect.height))
-
-        // Bottom-left corner
-        p.addArc(
-            center: CGPoint(x: br, y: rect.height - br),
-            radius: br,
-            startAngle: .degrees(90),
-            endAngle:   .degrees(180),
-            clockwise:  false
-        )
-
-        // Left side back to origin
+        // ── closeSubpath draws the top edge: (w, 0) → (0, 0) ─────────────────
         p.closeSubpath()
         return p
     }
