@@ -14,7 +14,16 @@ struct NotchView: View {
     // this is what lets the CALayer shadow track the animation exactly.
     @State private var panelSize: CGSize = .zero
 
-    var isExpanded: Bool { viewModel.state == .expanded }
+    // Mirrors viewModel.state, but as local @State driven through explicit
+    // withAnimation calls — needed for the trailing completion closure that
+    // hides the panel only after the collapse spring has fully settled.
+    @State private var isExpanded = false
+
+    // Panel visibility: snaps opaque the instant expansion is requested,
+    // returns to transparent only after the collapse spring completes.
+    // Deliberately NOT gated on expansionProgress — the spring oscillates
+    // around zero and would flicker the panel during settle.
+    @State private var isPanelVisible = false
 
     // Collapsed dimensions — driven by hardware geometry read at launch.
     private var collapsedWidth:  CGFloat { viewModel.notchFrame.width  > 0 ? viewModel.notchFrame.width  : 126 }
@@ -30,9 +39,9 @@ struct NotchView: View {
     private var expandedTotalWidth: CGFloat { expandedBodyWidth + 2 * shoulderRadius }
 
     // How far the panel is between collapsed (0) and expanded (1), derived
-    // from the live animated width. Drives both the shadow (path morph +
-    // opacity) and the panel fill opacity — so the panel is invisible at
-    // notch size and fades in as it grows, in lock-step with the spring.
+    // from the live animated width. Drives the shadow's path morph and
+    // opacity in lock-step with the spring. The panel itself is always
+    // fully opaque — collapsed, it sits exactly over the hardware notch.
     private var expansionProgress: CGFloat {
         let range = expandedTotalWidth - collapsedWidth
         guard range > 0 else { return isExpanded ? 1 : 0 }
@@ -90,7 +99,18 @@ struct NotchView: View {
                     width:  isExpanded ? expandedTotalWidth : collapsedWidth,
                     height: isExpanded ? expandedHeight     : collapsedHeight
                 ),
-                onUpdate: { panelSize = $0 }
+                onUpdate: { newSize in
+                    panelSize = newSize
+                    // During collapse: snap the entire panel+shadow invisible
+                    // the moment the width is within 2pt of notch size. At
+                    // that point the panel is geometrically indistinguishable
+                    // from the hardware notch, so no visible cut occurs — but
+                    // the shadow trail is already gone before the spring fully
+                    // settles. The ZStack opacity gate hides everything at once.
+                    if !isExpanded && newSize.width <= collapsedWidth + 2 {
+                        isPanelVisible = false
+                    }
+                }
             ))
 
             // ── Expanded content ──────────────────────────────────────────
@@ -113,17 +133,30 @@ struct NotchView: View {
                 .animation(.easeIn(duration: 0.1), value: isExpanded)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        // Invisible at rest: the hardware notch IS the collapsed appearance.
-        // Snaps to full opacity the instant expansion begins (not animated —
-        // expansionProgress changes outside the isExpanded transaction), so
-        // the opaque panel simply grows out of the notch on hover.
-        .opacity(expansionProgress == 0 ? 0 : 1)
-        .animation(
-            isExpanded
-                ? .spring(response: 0.55, dampingFraction: 0.75)
-                : .spring(response: 0.3,  dampingFraction: 0.75),
-            value: isExpanded
-        )
+        // Instant on expand; snaps invisible during collapse when the spring
+        // brings the panel within 2pt of notch size (geometry threshold in
+        // AnimatedSizeReporter). Hides panel fill + shadow together at once.
+        .opacity(isPanelVisible ? 1 : 0)
+        .onChange(of: viewModel.state) { _, newState in
+            if newState == .expanded {
+                // Visible before the spring starts moving.
+                isPanelVisible = true
+                withAnimation(.spring(response: 0.55, dampingFraction: 0.75)) {
+                    isExpanded = true
+                }
+            } else {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
+                    isExpanded = false
+                } completion: {
+                    // Fallback: geometry threshold above fires first in
+                    // practice; this catches any case where the spring
+                    // settles without crossing 2pt of notch width.
+                    if viewModel.state == .collapsed {
+                        isPanelVisible = false
+                    }
+                }
+            }
+        }
         .onAppear {
             panelSize = CGSize(width: collapsedWidth, height: collapsedHeight)
             startBreathing()
@@ -238,7 +271,7 @@ private struct NotchShadowBackdrop: NSViewRepresentable {
             let fade = CABasicAnimation(keyPath: "shadowOpacity")
             fade.fromValue      = layer.presentation()?.shadowOpacity ?? layer.shadowOpacity
             fade.toValue        = 0
-            fade.duration       = 0.12
+            fade.duration       = 0.05
             fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
             CATransaction.begin()
             CATransaction.setDisableActions(true)
