@@ -93,18 +93,6 @@ struct NotchView: View {
                 onUpdate: { panelSize = $0 }
             ))
 
-            // ── Notch cap ─────────────────────────────────────────────────
-            // A black overlay exactly the size of the hardware notch (read
-            // from NSScreen auxiliary areas, via the view model), pinned to
-            // the top-centre. Only this layer fades with expansionProgress —
-            // the panel body stays fully opaque and just grows. The cap
-            // materialises over the hardware notch as expansion starts,
-            // hiding the seam between hardware cutout and software panel.
-            Rectangle()
-                .fill(Color.black)
-                .frame(width: collapsedWidth, height: collapsedHeight)
-                .opacity(expansionProgress)
-
             // ── Expanded content ──────────────────────────────────────────
             // Constrained to the body width; padded down by shoulderRadius
             // so content sits below the shoulder zone.
@@ -125,6 +113,11 @@ struct NotchView: View {
                 .animation(.easeIn(duration: 0.1), value: isExpanded)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        // Invisible at rest: the hardware notch IS the collapsed appearance.
+        // Snaps to full opacity the instant expansion begins (not animated —
+        // expansionProgress changes outside the isExpanded transaction), so
+        // the opaque panel simply grows out of the notch on hover.
+        .opacity(expansionProgress == 0 ? 0 : 1)
         .animation(
             isExpanded
                 ? .spring(response: 0.55, dampingFraction: 0.75)
