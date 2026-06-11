@@ -30,9 +30,10 @@ struct NotchView: View {
     private var expandedTotalWidth: CGFloat { expandedBodyWidth + 2 * shoulderRadius }
 
     // How far the panel is between collapsed (0) and expanded (1), derived
-    // from the live animated width — keeps the shadow's shape morph (bottom
-    // corner radius) in step with the panel's own animProgress tween.
-    private var shadowProgress: CGFloat {
+    // from the live animated width. Drives both the shadow (path morph +
+    // opacity) and the panel fill opacity — so the panel is invisible at
+    // notch size and fades in as it grows, in lock-step with the spring.
+    private var expansionProgress: CGFloat {
         let range = expandedTotalWidth - collapsedWidth
         guard range > 0 else { return isExpanded ? 1 : 0 }
         return min(1, max(0, (panelSize.width - collapsedWidth) / range))
@@ -55,7 +56,7 @@ struct NotchView: View {
             NotchShadowBackdrop(
                 visible:            isExpanded,
                 size:               panelSize,
-                progress:           shadowProgress,
+                progress:           expansionProgress,
                 shoulderRadius:     shoulderRadius,
                 bendRadius:         bendRadius,
                 bottomCornerRadius: bottomCornerRadius
@@ -91,6 +92,18 @@ struct NotchView: View {
                 ),
                 onUpdate: { panelSize = $0 }
             ))
+
+            // ── Notch cap ─────────────────────────────────────────────────
+            // A black overlay exactly the size of the hardware notch (read
+            // from NSScreen auxiliary areas, via the view model), pinned to
+            // the top-centre. Only this layer fades with expansionProgress —
+            // the panel body stays fully opaque and just grows. The cap
+            // materialises over the hardware notch as expansion starts,
+            // hiding the seam between hardware cutout and software panel.
+            Rectangle()
+                .fill(Color.black)
+                .frame(width: collapsedWidth, height: collapsedHeight)
+                .opacity(expansionProgress)
 
             // ── Expanded content ──────────────────────────────────────────
             // Constrained to the body width; padded down by shoulderRadius
