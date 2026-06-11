@@ -279,6 +279,25 @@ When transitioning to a new session, commit all work first and reference the pre
 - [x] Animation targets defined
 - [x] Reference material collected (Alcove screenshots + GIF)
 - [x] Xcode project created
-- [ ] LICENSE and CLAUDE.md added to project folder
-- [ ] GitHub repo created and connected
-- [ ] Phase 1 begun
+- [x] LICENSE and CLAUDE.md added to project folder
+- [x] GitHub repo created and connected
+- [x] Phase 1 complete
+
+### Phase 1 implementation notes
+- Notch window engine: NSPanel at menu-bar level, centred on hardware notch,
+  always at full expanded frame size with 40pt shadow bleed margins on all sides
+- Expand/collapse spring: response 0.55 / damping 0.75 (expand),
+  response 0.3 / damping 0.75 (collapse)
+- NotchPanelShape: single Animatable path morphing between collapsed and expanded
+  geometry; shoulders constant at 10pt throughout animation
+- CALayer shadow: grows in lock-step with the spring via AnimatedSizeReporter,
+  opacity driven by live expansionProgress (no timer, no separate animation)
+- Transparent hit area: panel is invisible at rest (hardware notch provides
+  the black pixels); snaps opaque the instant isExpanded flips true; hides
+  again via a 2pt geometry threshold as the collapse spring approaches notch size
+
+### Known issues / future tuning
+- Collapse disappear has a very slight visual trail on some displays; the
+  2pt geometry threshold (NotchView.swift AnimatedSizeReporter callback) can
+  be raised (e.g. to 4–6pt) to cut earlier if the trail is still visible
+  after hardware/display tuning
