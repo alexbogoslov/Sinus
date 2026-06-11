@@ -8,7 +8,8 @@ import SwiftUI
 struct NotchView: View {
     @ObservedObject var viewModel: NotchViewModel
 
-    @State private var breathePhase: CGFloat = 0
+    @State private var breathePhase:  CGFloat = 0
+    @State private var shadowOpacity: CGFloat = 0
 
     var isExpanded: Bool { viewModel.state == .expanded }
 
@@ -28,29 +29,24 @@ struct NotchView: View {
     var body: some View {
         ZStack(alignment: .top) {
 
-            // ── Body shadow ───────────────────────────────────────────────
-            // Positioned behind the panel. Only the body area (below the
-            // shoulder zone) casts the shadow — top corners are square so
-            // they butt flush against the shoulder arcs with no gap.
-            // The panel shape covers this view's fill entirely; only the
-            // bleed outside the panel bounds is visible.
-            UnevenRoundedRectangle(
-                topLeadingRadius:     0,
-                bottomLeadingRadius:  bottomCornerRadius,
-                bottomTrailingRadius: bottomCornerRadius,
-                topTrailingRadius:    0
+            // ── Shadow layer ──────────────────────────────────────────────
+            // A blurred copy of the panel shape, behind the panel — same
+            // path, same parameters, no scaling. The blur alone feathers
+            // the silhouette outward to transparent. The opaque panel above
+            // hides the overlap, so only the soft halo is visible.
+            NotchPanelShape(
+                animProgress:       isExpanded ? 1 : 0,
+                shoulderRadius:     shoulderRadius,
+                bendRadius:         bendRadius,
+                bottomCornerRadius: bottomCornerRadius
             )
             .fill(Color.black)
-            .frame(width: expandedBodyWidth, height: expandedHeight - shoulderRadius)
-            .shadow(color: .black.opacity(0.4), radius: 24, x: 0, y: 8)
-            .offset(y: shoulderRadius)
-            .opacity(isExpanded ? 1 : 0)
-            .animation(
-                isExpanded
-                    ? .easeIn(duration: 0.15).delay(0.2)
-                    : .easeOut(duration: 0.1),
-                value: isExpanded
+            .frame(
+                width:  isExpanded ? expandedTotalWidth : collapsedWidth,
+                height: isExpanded ? expandedHeight     : collapsedHeight
             )
+            .blur(radius: 12)
+            .opacity(shadowOpacity)
 
             // ── Panel shape ───────────────────────────────────────────────
             // animProgress (0 = collapsed, 1 = expanded) is Animatable, so
@@ -96,6 +92,13 @@ struct NotchView: View {
             value: isExpanded
         )
         .onAppear { startBreathing() }
+        .onChange(of: isExpanded) { _, expanded in
+            if expanded {
+                withAnimation(.easeIn(duration: 0.1).delay(0.05)) { shadowOpacity = 0.45 }
+            } else {
+                shadowOpacity = 0   // instant — no animation on collapse
+            }
+        }
     }
 
     // MARK: - Content placeholders (replaced in Phase 2+)

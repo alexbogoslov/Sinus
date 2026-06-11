@@ -60,8 +60,22 @@ final class NotchWindowController: NSObject {
         let panelY = (screen.frame.maxY - panelH).rounded()
         expandedFrame = CGRect(x: panelX, y: panelY, width: panelW, height: panelH)
 
+        // Window frame extends below and to both sides of the visible panel
+        // so the drop shadow can bleed outward without clipping at the window
+        // edges. The SwiftUI content is top-aligned and horizontally centred,
+        // so the panel shape itself stays anchored to the notch — only the
+        // window's drawable area grows. expandedFrame (the hover containment
+        // zone) deliberately excludes the bleed margins.
+        let shadowBleed: CGFloat = 40
+        let windowFrame = CGRect(
+            x:      panelX - shadowBleed,
+            y:      panelY - shadowBleed,
+            width:  panelW + 2 * shadowBleed,
+            height: panelH + shadowBleed
+        )
+
         let panel = NSPanel(
-            contentRect: expandedFrame,
+            contentRect: windowFrame,
             styleMask:   [.borderless, .nonactivatingPanel],
             backing:     .buffered,
             defer:       false
